@@ -1,0 +1,235 @@
+_HELP = 'Valid Commands LOGIN, LOGOUT, DEPOSIT, WITHDRAW, BALANCE, QUIT'
+
+# Dictionary of customer accounts with method for handling customer requests
+
+# _file | _DB filename
+# _DB | Dict of _file as { user1 : [ pwd1, bal1 ], usr2 : [ pwd2, bal2 ] ... }
+# _user | Currently logged in user; None if not logged in
+#
+class Bank():
+   # @param file - DB Filename
+   def __init__( self, file ):
+      self._file = file
+      self._DB   = {}
+      self._user = None
+
+
+   # Load customer account file
+
+   # @return Number of Customers Loaded
+
+   def LoadFile( self ):
+      self._DB = {}
+      try:
+         fp = open( self._file, 'r' )
+         s  = fp.readlines()
+         fp.close()
+         for l in s:
+            kv = l.split(',' )
+            if len( kv ) >= 3:
+               card = kv[0]
+               pwd  = kv[1]
+               try:    bal = float( kv[2] )
+               except: bal = 0.0
+               self._DB[card] = [ pwd, bal ]
+      except:
+         pass
+      return len( self._DB )
+
+
+   # Save user accounts to _file
+
+   def SaveFile( self ):
+      csvOutput = []
+      for card in self._DB:
+         ( pwd, bal ) = self._DB[card]
+         csvOutput += [ '%s,%s,%.2f' % ( card, pwd, bal ) ]
+      fp = open( self._file, 'w' )
+      fp.write( '\n'.join( csvOutput ) )
+
+
+   # Get input from user; Process until done
+
+   def ProcessUserInput( self ):
+      while True:
+         inp = self._GetInput()
+         if inp == None:
+            return
+         if not len( inp ):
+            print( 'WARNING : Invalid command; %s' % _HELP )
+            continue ## Bad command
+         #
+         # 1st value in list is the command
+         #
+         cmd = inp[0]
+         if cmd == 'HELP':
+            print( _HELP )
+         elif cmd == 'LOGIN':
+            self.Logon( inp[1], inp[2] )
+         elif cmd == 'LOGOUT':
+            if self._user:
+               print( 'User %s logged out' % self._user )
+            else:
+               print( 'WARNING : Not logged in' )
+            self._user = None
+         elif cmd == 'DEPOSIT':
+            self.UpdateAccount( inp[1], True )
+         elif cmd == 'WITHDRAW':
+            self.UpdateAccount( inp[1], False )
+         elif cmd == 'BALANCE':
+            self.ShowBalance()
+         elif cmd == 'QUIT':
+            return
+      return
+
+
+   # Get input from user
+
+   # @return [ cmd, arg1, arg2, ... ]; [] if invalid; None if done
+
+   def _GetInput( self ):
+
+      # 1) Prompt for command
+
+      usr = self._user
+      if not usr: usr = 'Not Logged In'
+      cmd = self._Input( '[Enter Command (%s)] ' % usr )
+      if not cmd:
+         return None
+      #
+      # 2) Valid Command?
+      #
+      rc = []
+      if cmd == 'HELP':
+        rc = [ cmd ]
+      elif cmd == 'LOGIN':
+         usr = self._Input( '[Username] ' )
+         pwd = self._Input( '[Password] ' )
+         rc  = [ cmd, usr, pwd ]
+      elif cmd == 'LOGOUT':
+         return [ cmd ]
+      elif cmd == 'DEPOSIT':
+         amt = self._Input( '[Deposit Amount (%s)] ' % usr )
+         rc = [ cmd, amt ]
+      elif cmd == 'WITHDRAW':
+         amt = self._Input( '[Withdraw Amount (%s)] ' % usr )
+         rc = [ cmd, amt ]
+      elif cmd == 'BALANCE':
+         rc = [ cmd ]
+      elif cmd == 'QUIT':
+         rc = None
+      return rc
+
+
+   # Called to handle LOGON command
+
+   # @param inpUser - Input Username
+   # @param inpPassword - Input Password
+
+   def Logon( self, inpUser, inpPassword ):
+      #
+      # 1) Find / Validate in DB
+      #
+      self._user = None
+      if not inpUser in self._DB:
+         print( 'ERROR : Unknown user %s' % inpUser )
+         return
+      [ pwd, bal ] = self._DB[inpUser]
+      if inpPassword != pwd:
+         print( 'ERROR : Invalid password for user %s' % inpUser )
+         return
+      #
+      # 2) Show balance
+      #
+      #
+      self._user = inpUser
+      self.ShowBalance()
+
+
+   # Called to handle DEPOSIT or WITHDRAW command
+
+   # The following are checked:
+   # -# User is logged in
+   # -# Amount entered is a number
+
+   # @param userAmt - Amount to deposit as string
+   # @param bDeposit - True for DEPOSIT; False for WITHDRAW
+
+   def UpdateAccount( self, userAmt, bDeposit ):
+
+      # 1) User logged in??
+
+      if not self._user:
+         print( 'WARNING : Not logged in' )
+         return
+
+      # 2) Valid number input?
+
+      try:    amt = float( userAmt )
+      except: amt = None
+      if not amt:
+         print( 'WARNING : Invalid amount : %s' % userAmt )
+         return
+
+      # 3) Add or Subtract to balance
+      usr = self._user
+      DB  = self._DB
+      if usr in DB:
+         ( pwd, bal ) = DB[usr]
+         if bDeposit: bal += amt
+         else:        bal -= amt
+         DB[usr] = [ pwd, bal ]
+      self.SaveFile()
+      self.ShowBalance()
+
+
+   # Called to handle BALANCE command
+
+   def ShowBalance( self ):
+      if not self._user:
+         print( 'WARNING : Not logged in' )
+         return
+
+      #  Find / Validate in DB
+
+      msg = 'WARNING : User %s not found' % self._user
+      if self._user in self._DB:
+         [ pwd, bal ] = self._DB[self._user]
+         msg = 'BALANCE for %s : $%.2f' % ( self._user, bal )
+      print( msg )
+
+
+   # Wrapper around input() with prompt that handles CTRL-C
+
+   # @param prompt - input() prompt
+   # @return Raw user input; None is CTRL-C
+
+   def _Input( self, prompt ):
+      try:
+         inp = input( prompt ).strip()
+      except KeyboardInterrupt:
+         inp = None
+      return inp
+
+
+# main()
+
+if __name__ == "__main__":
+   #
+   # 1st argument is CSV file : cardNum,password,balance;
+   #
+   try:    file = sys.argv[1]
+   except: file = 'bank.csv'
+   bank    = Bank( file )
+   numCust = bank.LoadFile()
+   if not numCust:
+      print( 'Empty accounts file %s; Exitting ...' % file )
+      sys.exit()
+
+
+   print( '%d customers loaded' % numCust )
+   bank.ProcessUserInput()
+
+
+
+
